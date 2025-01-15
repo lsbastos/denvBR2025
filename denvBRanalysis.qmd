@@ -1,0 +1,165 @@
+---
+title: "Dengue susceptibility analysis"
+author: "Leo Bastos"
+format: 
+  html: 
+    toc: true
+    toc-location: left
+    self-contained: true
+    code-fold: true
+    code-summary: "Show the code"
+execute: 
+  warning: false
+editor_options: 
+  chunk_output_type: inline
+---
+
+## Intro
+
+This analysis aims to show in a naive way how many people are susceptible to dengue and its serotypes in Brazil.
+
+## Reading data
+
+```{r}
+
+pacman::p_load(tidyverse, readxl, geobr)
+
+# Dados do SINAN
+denvbr <- read_csv("data/denvbr20152024.csv.gz")
+
+# Populacao CENSO
+pop22 <- readxl::read_xlsx(path = "data/POP2022 CD2022_Populacao_Coletada_Imputada_e_Total_Municipio_e_UF.xlsx", 
+                    sheet = "Municípios",
+                    range = "B3:H5573"
+)
+
+BR0 <- read_municipality()
+
+data <- pop22 |> transmute(
+  UF,
+  coduf = `COD. UF`,
+  codmun7 = paste0(`COD. UF`,`COD. MUNIC`),
+  codmun6 = substr(codmun7,1,6),
+  pop = `POP. TOTAL`
+)
+
+aux2 <- denvbr |> 
+  mutate(SOROTIPO = ifelse(is.na(SOROTIPO),SOROTIPO, paste0("DENV",SOROTIPO))) |> 
+  group_by(codmun6 = as.character(ID_MN_RESI)) |> 
+  mutate(casos = n()) |> 
+  group_by(codmun6, SOROTIPO) |> 
+  summarise(
+    n = n(),
+    casos = casos[1]
+  ) |> 
+  pivot_wider(values_from = n, names_from = SOROTIPO)
+  
+data <- data |> left_join(aux2) 
+```
+
+Distribution of the proportion of cases in the last 10 years divided by the 2022 population according to population size.
+
+```{r}
+
+data |> 
+  mutate(
+    ratio = casos / pop,
+    popsize = case_when(
+      pop > 500000 ~ "Pop >500k",
+      TRUE ~ "Pop <= 500k"
+    )
+  ) |> 
+  ggplot(aes(x = ratio, color = popsize)) + 
+  geom_density() +
+  theme_bw()
+```
+
+Serotype
+
+```{r}
+
+data <- data |> 
+    mutate(
+    DENV1 = replace_na(DENV1,0),
+    DENV2 = replace_na(DENV2,0),
+    DENV3 = replace_na(DENV3,0),
+    DENV4 = replace_na(DENV4,0),
+    DENVT = DENV1 + DENV2 + DENV3 + DENV4
+  ) |> 
+  group_by(UF) |> 
+  mutate(
+    DENV1p = sum(DENV1) / sum(DENVT), 
+    DENV2p = sum(DENV2) / sum(DENVT), 
+    DENV3p = sum(DENV3) / sum(DENVT), 
+    DENV4p = sum(DENV4) / sum(DENVT) 
+  ) |> ungroup() |> 
+  mutate(
+    ratio = casos / pop,
+    DENV1p = if_else(pop >= 200000, DENV1/ DENVT, DENV1p), 
+    DENV2p = if_else(pop >= 200000, DENV2/ DENVT, DENV2p), 
+    DENV3p = if_else(pop >= 200000, DENV3/ DENVT, DENV3p), 
+    DENV4p = if_else(pop >= 200000, DENV4/ DENVT, DENV4p)
+  ) 
+
+BR <- BR0 |> 
+  left_join( data |> 
+               mutate(code_muni = as.numeric(codmun7)) |> 
+               select(code_muni, ratio, DENV1p:DENV4p)
+             )
+
+BR |> 
+  mutate(ratio = replace_na(ratio, 0)) |> 
+  ggplot(aes(fill = ratio)) + 
+  geom_sf(color = NA) + colorspace::scale_fill_continuous_sequential(palette = "inferno") +
+  theme_void()
+
+# BR |> 
+#   mutate(ratio.cat = cut(ratio, 
+#                          breaks = c(0,.2,.5,1.1),
+#                          labels = c("<20%", "20-50%", ">50%")
+#                          )
+#          ) |> 
+#   ggplot(aes(fill = ratio.cat)) + 
+#   geom_sf(color = NA) + 
+  # theme_void()
+```
+
+DENV1
+
+```{r}
+BR |> 
+  mutate(ratio = replace_na(ratio, 0) * DENV1p ) |> 
+  ggplot(aes(fill = ratio)) + 
+  geom_sf(color = NA) + colorspace::scale_fill_continuous_sequential(palette = "inferno") +
+  theme_void()
+```
+
+DENV2
+
+```{r}
+BR |> 
+  mutate(ratio = replace_na(ratio, 0) * DENV2p ) |> 
+  ggplot(aes(fill = ratio)) + 
+  geom_sf(color = NA) + colorspace::scale_fill_continuous_sequential(palette = "inferno") +
+  theme_void()
+```
+
+DENV3
+
+```{r}
+BR |> 
+  mutate(ratio = replace_na(ratio, 0) * DENV3p ) |> 
+  ggplot(aes(fill = ratio)) + 
+  geom_sf(color = NA) + colorspace::scale_fill_continuous_sequential(palette = "inferno") +
+  theme_void()
+```
+
+DENV4
+
+```{r}
+BR |> 
+  mutate(ratio = replace_na(ratio, 0) * DENV4p ) |> 
+  ggplot(aes(fill = ratio)) + 
+  geom_sf(color = NA) + colorspace::scale_fill_continuous_sequential(palette = "inferno") +
+  theme_void()
+```
