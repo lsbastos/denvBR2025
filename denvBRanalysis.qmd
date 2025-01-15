@@ -64,6 +64,7 @@ Distribution of the proportion of cases in the last 10 years divided by the 2022
 data |> 
   mutate(
     ratio = casos / pop,
+    ratio = replace_na(ratio, 0),
     popsize = case_when(
       pop > 500000 ~ "Pop >500k",
       TRUE ~ "Pop <= 500k"
@@ -95,6 +96,7 @@ data <- data |>
   ) |> ungroup() |> 
   mutate(
     ratio = casos / pop,
+    ratio = replace_na(ratio, 0),
     DENV1p = if_else(pop >= 200000, DENV1/ DENVT, DENV1p), 
     DENV2p = if_else(pop >= 200000, DENV2/ DENVT, DENV2p), 
     DENV3p = if_else(pop >= 200000, DENV3/ DENVT, DENV3p), 
