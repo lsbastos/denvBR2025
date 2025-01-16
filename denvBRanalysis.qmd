@@ -33,6 +33,8 @@ pop22 <- readxl::read_xlsx(path = "data/POP2022 CD2022_Populacao_Coletada_Imputa
                     range = "B3:H5573"
 )
 
+rgi <- read_xlsx(path = "data/regioes_geograficas_composicao_por_municipios_2017_20180911.xlsx")
+
 BR0 <- read_municipality()
 
 data <- pop22 |> transmute(
@@ -75,32 +77,36 @@ data |>
   theme_bw()
 ```
 
-Serotype
+## Serotype
 
 ```{r}
 
 data <- data |> 
+  left_join(rgi, by = c("codmun7"="CD_GEOCODI")) |> 
     mutate(
     DENV1 = replace_na(DENV1,0),
     DENV2 = replace_na(DENV2,0),
     DENV3 = replace_na(DENV3,0),
     DENV4 = replace_na(DENV4,0),
-    DENVT = DENV1 + DENV2 + DENV3 + DENV4
+    DENVT = DENV1 + DENV2 + DENV3 + DENV4,
+    DENVT = ifelse(DENVT==0,1,DENVT)
   ) |> 
-  group_by(UF) |> 
+  # Calcular proporcoes de sorotipo segundo RGI
+  group_by(cod_rgi) |> 
   mutate(
     DENV1p = sum(DENV1) / sum(DENVT), 
     DENV2p = sum(DENV2) / sum(DENVT), 
     DENV3p = sum(DENV3) / sum(DENVT), 
     DENV4p = sum(DENV4) / sum(DENVT) 
   ) |> ungroup() |> 
+  # Se a populacao for maior que 100k e ter em 10 anos mais de 100 confirmados
   mutate(
     ratio = casos / pop,
     ratio = replace_na(ratio, 0),
-    DENV1p = if_else(pop >= 200000, DENV1/ DENVT, DENV1p), 
-    DENV2p = if_else(pop >= 200000, DENV2/ DENVT, DENV2p), 
-    DENV3p = if_else(pop >= 200000, DENV3/ DENVT, DENV3p), 
-    DENV4p = if_else(pop >= 200000, DENV4/ DENVT, DENV4p)
+    DENV1p = if_else(pop >= 100000 & DENVT > 100, DENV1/ DENVT, DENV1p), 
+    DENV2p = if_else(pop >= 100000 & DENVT > 100, DENV2/ DENVT, DENV2p), 
+    DENV3p = if_else(pop >= 100000 & DENVT > 100, DENV3/ DENVT, DENV3p), 
+    DENV4p = if_else(pop >= 100000 & DENVT > 100, DENV4/ DENVT, DENV4p)
   ) 
 
 BR <- BR0 |> 
@@ -126,7 +132,7 @@ BR |>
   # theme_void()
 ```
 
-DENV1
+#### DENV1
 
 ```{r}
 BR |> 
@@ -136,7 +142,7 @@ BR |>
   theme_void()
 ```
 
-DENV2
+#### DENV2
 
 ```{r}
 BR |> 
@@ -146,7 +152,7 @@ BR |>
   theme_void()
 ```
 
-DENV3
+#### DENV3
 
 ```{r}
 BR |> 
@@ -156,7 +162,7 @@ BR |>
   theme_void()
 ```
 
-DENV4
+#### DENV4
 
 ```{r}
 BR |> 
