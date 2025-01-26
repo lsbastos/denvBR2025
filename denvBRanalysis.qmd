@@ -63,24 +63,26 @@ Distribution of the proportion of cases in the last 10 years divided by the 2022
 
 ```{r}
 
-data |> 
+density_br <- data |> 
   mutate(
     ratio = casos / pop,
     ratio = replace_na(ratio, 0),
     popsize = case_when(
-      pop > 500000 ~ "Pop >500k",
-      TRUE ~ "Pop <= 500k"
+      pop > 5e5 ~ "Population >500k",
+      TRUE ~ "Population <= 500k"
     )
   ) |> 
   ggplot(aes(x = ratio, color = popsize)) + 
   geom_density() +
+  labs(x = "Cases/Population", y = "density")+
+  scale_x_continuous(n.breaks = 10)+
   theme_bw()
+density_br
 ```
 
 ## Serotype
 
 ```{r}
-
 data <- data |> 
   left_join(rgi, by = c("codmun7"="CD_GEOCODI")) |> 
     mutate(
@@ -107,19 +109,61 @@ data <- data |>
     DENV2p = if_else(pop >= 100000 & DENVT > 100, DENV2/ DENVT, DENV2p), 
     DENV3p = if_else(pop >= 100000 & DENVT > 100, DENV3/ DENVT, DENV3p), 
     DENV4p = if_else(pop >= 100000 & DENVT > 100, DENV4/ DENVT, DENV4p)
-  ) 
+  ) |>  
+  ## Following the Table S5 for the Spearman's correlation for serotype-specific FOI
+  ## Antigenic evolution of dengue viruses over 20 years
+  ## https://www.science.org/doi/abs/10.1126/science.abk0058
+  mutate(
+    DENV_1_2 = if_else(pop >= 100000 & DENVT > 100, 
+                       0.23*(DENV1/ if_else(DENV2 == 0, 1, DENV2))/DENVT, 
+                       0), 
+    DENV_1_3 = if_else(pop >= 100000 & DENVT > 100, 
+                       0.17*(DENV1/ if_else(DENV3 == 0, 1, DENV3))/DENVT, 
+                       0), 
+    DENV_1_4 = if_else(pop >= 100000 & DENVT > 100, 
+                       0.09*(DENV1/ if_else(DENV4 == 0, 1, DENV4))/DENVT, 
+                       0), 
+    DENV_1_4 = if_else(pop >= 100000 & DENVT > 100, 
+                       0.09*(DENV1/ if_else(DENV4 == 0, 1, DENV4))/DENVT, 
+                       0), 
+    DENV_2_3 = if_else(pop >= 100000 & DENVT > 100, 
+                       0.01*(DENV2/ if_else(DENV3 == 0, 1, DENV3))/DENVT, 
+                       0), 
+    DENV_2_4 = if_else(pop >= 100000 & DENVT > 100, 
+                       -0.19*(DENV2/ if_else(DENV4 == 0, 1, DENV4))/DENVT, 
+                       0), 
+    DENV_3_4 = if_else(pop >= 100000 & DENVT > 100, 
+                       -0.31*(DENV3/ if_else(DENV4 == 0, 1, DENV4))/DENVT, 
+                       0), 
+  )
 
 BR <- BR0 |> 
   left_join( data |> 
-               mutate(code_muni = as.numeric(codmun7)) |> 
-               select(code_muni, ratio, DENV1p:DENV4p)
+               mutate(code_muni = as.numeric(codmun7))
              )
+```
 
-BR |> 
+#### Maps
+
+```{r}
+denv_br <- BR |> 
   mutate(ratio = replace_na(ratio, 0)) |> 
-  ggplot(aes(fill = ratio)) + 
-  geom_sf(color = NA) + colorspace::scale_fill_continuous_sequential(palette = "inferno") +
-  theme_void()
+  ggplot(aes(fill = 1 - ratio)) + 
+  geom_sf(color = NA) + 
+  geom_sf(data = BR_states,
+          color = "black",
+          fill = "transparent")+
+  colorspace::scale_fill_continuous_sequential(name = "Dengue outbreak \n Risk",
+                                               rev = F,
+                                           palette = "Purple-Yellow")+
+  ggthemes::theme_map()
+denv_br
+
+ggsave(filename = "Fig/denv_risk_outbreak.png",
+       plot = denv_br,
+       width = 16,
+       height = 12,
+       dpi = 200)
 
 # BR |> 
 #   mutate(ratio.cat = cut(ratio, 
@@ -182,56 +226,78 @@ BR |>
 # breaks_risk <- seq(0.5, 1, 0.1)
 # labels_risk <- c("0-50%", "60%", "70%", "80%", "90%", "100%")
 
-sf::sf_use_s2(FALSE)
+# sf::insf_use_s2(FALSE)
+# 
+# geom_rgi <- rgi |> 
+#   left_join(BR0 |> 
+#               mutate(code_muni = as.character(code_muni)), 
+#             by = c("CD_GEOCODI" = "code_muni")) |> 
+#   group_by(cod_rgi) |> 
+#   summarise(geometry = geom |> 
+#               sf::st_union() |> 
+#               sfheaders::sf_remove_holes()) |> 
+#   sf::st_as_sf() |> 
+#   left_join(rgi)
+# 
+# data_rgi <- geom_rgi |> 
+#   left_join(data,
+#             by = c("CD_GEOCODI" = "codmun7"))
 
-geom_rgi <- rgi |> 
-  left_join(BR0 |> 
-              mutate(code_muni = as.character(code_muni)), 
-            by = c("CD_GEOCODI" = "code_muni")) |> 
-  group_by(cod_rgi) |> 
-  summarise(geometry = geom |> 
-              sf::st_union() |> 
-              sfheaders::sf_remove_holes()) |> 
-  sf::st_as_sf() |> 
-  left_join(rgi)
+data_br <- BR |> 
+  mutate(ratio_denv1 = replace_na(ratio, 0) * DENV1p,
+         ratio_denv2 = replace_na(ratio, 0) * DENV2p,
+         ratio_denv3 = replace_na(ratio, 0) * DENV3p,
+         ratio_denv4 = replace_na(ratio, 0) * DENV4p)
 
-data_rgi <- geom_rgi |> 
-  left_join(data,
-            by = c("CD_GEOCODI" = "codmun7"))
-
-denv1.risk <- data_rgi |> 
-  mutate(ratio = replace_na(ratio, 0) * DENV1p ) |> 
-  ggplot(aes(fill = 1 - ratio)) + 
+denv1.risk <- data_br |> 
+  ggplot(aes(fill = 1 - ratio_denv1)) + 
   geom_sf(color = NA) + 
-  colorspace::scale_fill_binned_sequential("inferno")+
-  theme_void()+
+  geom_sf(data = BR_states,
+          color = "black",
+          fill = "transparent")+
+  colorspace::scale_fill_continuous_sequential(name = "Outbreak \n Risk",
+                                               # rev = F,
+                                           palette = "Purple-Yellow")+
+  ggthemes::theme_map()+
   labs(title = "DENV1")
 denv1.risk
 
-denv2.risk <- data_rgi |> 
-  mutate(ratio = replace_na(ratio, 0) * DENV2p ) |> 
-  ggplot(aes(fill = 1 - ratio)) + 
+denv2.risk <- data_br |> 
+  ggplot(aes(fill = 1 - ratio_denv2)) + 
   geom_sf(color = NA) + 
-  colorspace::scale_fill_binned_sequential("inferno")+
-  theme_void()+
+  geom_sf(data = BR_states,
+          color = "black",
+          fill = "transparent")+
+  colorspace::scale_fill_continuous_sequential(name = "Outbreak \n Risk",
+                                               # rev = F,
+                                           palette = "Purple-Yellow")+
+  ggthemes::theme_map()+
   labs(title = "DENV2")
 denv2.risk
 
-denv3.risk <- data_rgi |> 
-  mutate(ratio = replace_na(ratio, 0) * DENV3p ) |> 
-  ggplot(aes(fill = 1 - ratio)) + 
+denv3.risk <- data_br |> 
+  ggplot(aes(fill = 1 - ratio_denv3)) + 
   geom_sf(color = NA) + 
-  colorspace::scale_fill_binned_sequential("inferno")+
-  theme_void()+
-  labs(title = "DENV2")
+  geom_sf(data = BR_states,
+          color = "black",
+          fill = "transparent")+
+  colorspace::scale_fill_continuous_sequential(name = "Outbreak \n Risk",
+                                               # rev = F,
+                                           palette = "Purple-Yellow")+
+  ggthemes::theme_map()+
+  labs(title = "DENV3")
 denv3.risk
 
-denv4.risk <- data_rgi |> 
-  mutate(ratio = replace_na(ratio, 0) * DENV4p ) |> 
-  ggplot(aes(fill = 1 - ratio)) + 
+denv4.risk <- data_br |> 
+  ggplot(aes(fill = 1 - ratio_denv4)) + 
   geom_sf(color = NA) + 
-  colorspace::scale_fill_binned_sequential("inferno")+
-  theme_void()+
+  geom_sf(data = BR_states,
+          color = "black",
+          fill = "transparent")+
+  colorspace::scale_fill_continuous_sequential(name = "Outbreak \n Risk",
+                                               # rev = F,
+                                           palette = "Purple-Yellow")+
+  ggthemes::theme_map()+
   labs(title = "DENV4")
 denv4.risk
 ```
@@ -240,10 +306,48 @@ denv4.risk
 ```{r}
 library(patchwork)
 
-patchwork_risk <-(denv1.risk | denv2.risk | denv3.risk | denv4.risk)+
-  plot_layout(guides = 'collect')&
-  theme(legend.position = "bottom")
+patchwork_risk <-((denv1.risk | denv2.risk) / (denv3.risk | denv4.risk))
 patchwork_risk
 
+ggsave(filename = "Fig/denv_serotype_risk_outbreak.png",
+       plot = patchwork_risk,
+       width = 16,
+       height = 12,
+       dpi = 200)
+
+```
+
+
+```{r}
+aux3 <- denvbr |> 
+  mutate(SOROTIPO = ifelse(is.na(SOROTIPO),SOROTIPO, paste0("DENV",SOROTIPO))) |> 
+  group_by(codmun6 = as.character(ID_MN_RESI)) |> 
+  mutate(casos = n()) |> 
+  group_by(codmun6, SOROTIPO, DT_SIN_PRI) |> 
+  summarise(
+    n = n(),
+    casos = casos[1]
+  ) |> 
+  filter(!is.na(SOROTIPO)) |> 
+  pivot_wider(values_from = n, names_from = SOROTIPO)
+
+colors <- c("#1965B0", "#4EB265", "#F7F056", "#DC050C")
+
+aux3 |> 
+  filter(!is.na(DT_SIN_PRI), 
+         year(DT_SIN_PRI) > 2015) |>
+  rename(date = DT_SIN_PRI) |> 
+  group_by(date) |> 
+  summarise(across(starts_with("DENV"), 
+                   ~sum(.x, na.rm = T))) |> 
+  pivot_longer(cols = starts_with("DENV"), 
+               names_to = "serotype",
+               values_to = "count") |> 
+  ggplot(aes(x = date, 
+             y = count,
+             fill = serotype))+
+  geom_col()+
+  theme_minimal()+
+  scale_fill_manual(values = colors)
 ```
 
