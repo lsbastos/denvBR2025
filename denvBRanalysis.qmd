@@ -29,13 +29,15 @@ denvbr <- read_csv("data/denvbr20152024.csv.gz")
 
 # Populacao CENSO
 pop22 <- readxl::read_xlsx(path = "data/POP2022 CD2022_Populacao_Coletada_Imputada_e_Total_Municipio_e_UF.xlsx", 
-                    sheet = "Municípios",
-                    range = "B3:H5573"
+                           sheet = "Municípios",
+                           range = "B3:H5573"
 )
 
 rgi <- read_xlsx(path = "data/regioes_geograficas_composicao_por_municipios_2017_20180911.xlsx")
 
 BR0 <- read_municipality()
+
+BR_states <- read_state()
 
 data <- pop22 |> transmute(
   UF,
@@ -55,7 +57,7 @@ aux2 <- denvbr |>
     casos = casos[1]
   ) |> 
   pivot_wider(values_from = n, names_from = SOROTIPO)
-  
+
 data <- data |> left_join(aux2) 
 ```
 
@@ -85,7 +87,7 @@ density_br
 ```{r}
 data <- data |> 
   left_join(rgi, by = c("codmun7"="CD_GEOCODI")) |> 
-    mutate(
+  mutate(
     DENV1 = replace_na(DENV1,0),
     DENV2 = replace_na(DENV2,0),
     DENV3 = replace_na(DENV3,0),
@@ -140,22 +142,22 @@ data <- data |>
 BR <- BR0 |> 
   left_join( data |> 
                mutate(code_muni = as.numeric(codmun7))
-             )
+  )
 ```
 
 #### Maps
 
 ```{r}
 denv_br <- BR |> 
-  mutate(ratio = replace_na(ratio, 0)) |> 
+  mutate(ratio = replace_na(ratio, 0)) |>
   ggplot(aes(fill = 1 - ratio)) + 
   geom_sf(color = NA) + 
   geom_sf(data = BR_states,
           color = "black",
           fill = "transparent")+
   colorspace::scale_fill_continuous_sequential(name = "Dengue outbreak \n Risk",
-                                               rev = F,
-                                           palette = "Purple-Yellow")+
+                                               # rev = F,
+                                               palette = "Purple-Yellow")+
   ggthemes::theme_map()
 denv_br
 
@@ -173,7 +175,7 @@ ggsave(filename = "Fig/denv_risk_outbreak.png",
 #          ) |> 
 #   ggplot(aes(fill = ratio.cat)) + 
 #   geom_sf(color = NA) + 
-  # theme_void()
+# theme_void()
 ```
 
 #### DENV1
@@ -257,7 +259,7 @@ denv1.risk <- data_br |>
           fill = "transparent")+
   colorspace::scale_fill_continuous_sequential(name = "Outbreak \n Risk",
                                                # rev = F,
-                                           palette = "Purple-Yellow")+
+                                               palette = "Purple-Yellow")+
   ggthemes::theme_map()+
   labs(title = "DENV1")
 denv1.risk
@@ -270,7 +272,7 @@ denv2.risk <- data_br |>
           fill = "transparent")+
   colorspace::scale_fill_continuous_sequential(name = "Outbreak \n Risk",
                                                # rev = F,
-                                           palette = "Purple-Yellow")+
+                                               palette = "Purple-Yellow")+
   ggthemes::theme_map()+
   labs(title = "DENV2")
 denv2.risk
@@ -283,7 +285,7 @@ denv3.risk <- data_br |>
           fill = "transparent")+
   colorspace::scale_fill_continuous_sequential(name = "Outbreak \n Risk",
                                                # rev = F,
-                                           palette = "Purple-Yellow")+
+                                               palette = "Purple-Yellow")+
   ggthemes::theme_map()+
   labs(title = "DENV3")
 denv3.risk
@@ -296,7 +298,7 @@ denv4.risk <- data_br |>
           fill = "transparent")+
   colorspace::scale_fill_continuous_sequential(name = "Outbreak \n Risk",
                                                # rev = F,
-                                           palette = "Purple-Yellow")+
+                                               palette = "Purple-Yellow")+
   ggthemes::theme_map()+
   labs(title = "DENV4")
 denv4.risk
@@ -316,38 +318,159 @@ ggsave(filename = "Fig/denv_serotype_risk_outbreak.png",
        dpi = 200)
 
 ```
+#### A model to smooth out the cases
+
+In an attempt to have more smooth estimates of cases we employed the following model, $Y_i$ is the number of cases at the municipality $i$:
+
+$$
+Y_i \sim Poisson(\lambda_i) \\
+log(\lambda_i) = \mu + \theta(\lambda_i) + \epsilon_i \\
+$$
+
+Where we a modeling the number of cases to have a smoothed version of them, to that end the $\theta(\lambda_i)$ term is a CAR model with the following structure:
+
+$$
+\theta(\lambda_i) = \frac{1}{\sqrt\tau_b}(\sqrt{1-\phi} v(\lambda_i) + \sqrt\phi u(\lambda_i))
+$$
+
+where $\tau_b$ is a precision parameter and $\phi$ is the mixing parameter. 
+Here, the $𝑣(\lambda_i)$ are _iid_ with a normal distribution with variance equal to one, and the $𝑢(\lambda_i)$ parameters are assigned the Besag intrinsic conditional autoregressive (ICAR) model with variance equal to 1.
+
+From that estimates we calculate as before the cases to population ratio and the ratios for each of the serotypes.
 
 
 ```{r}
-aux3 <- denvbr |> 
-  mutate(SOROTIPO = ifelse(is.na(SOROTIPO),SOROTIPO, paste0("DENV",SOROTIPO))) |> 
-  group_by(codmun6 = as.character(ID_MN_RESI)) |> 
-  mutate(casos = n()) |> 
-  group_by(codmun6, SOROTIPO, DT_SIN_PRI) |> 
-  summarise(
-    n = n(),
-    casos = casos[1]
-  ) |> 
-  filter(!is.na(SOROTIPO)) |> 
-  pivot_wider(values_from = n, names_from = SOROTIPO)
+sf::sf_use_s2(FALSE)
+library(INLA)
+compute_list <- control.compute(hyperpar = T, 
+                                return.marginals = T, 
+                                return.marginals.predictor = T,
+                                 dic = T, 
+                                cpo = T, 
+                                waic = T)
 
-colors <- c("#1965B0", "#4EB265", "#F7F056", "#DC050C")
+predictor_list <- control.predictor(compute = T)
 
-aux3 |> 
-  filter(!is.na(DT_SIN_PRI), 
-         year(DT_SIN_PRI) > 2015) |>
-  rename(date = DT_SIN_PRI) |> 
-  group_by(date) |> 
-  summarise(across(starts_with("DENV"), 
-                   ~sum(.x, na.rm = T))) |> 
-  pivot_longer(cols = starts_with("DENV"), 
-               names_to = "serotype",
-               values_to = "count") |> 
-  ggplot(aes(x = date, 
-             y = count,
-             fill = serotype))+
-  geom_col()+
-  theme_minimal()+
-  scale_fill_manual(values = colors)
+BR <- BR |> 
+  mutate(ID = row_number())
+
+graph_br <- spdep::poly2nb(BR0, queen = T)
+
+nbmat <- spdep::nb2mat(graph_br, style = "W", zero.policy = T)
+
+CAR_model <- inla(formula = as.formula(casos ~ 1+
+                                         f(ID,
+                                           model = "bym2",
+                                           graph = nbmat,
+                                           scale.model = TRUE,
+                                           constr = TRUE,
+                                           hyper = list(phi = list(prior = "pc",
+                                                                   param = c(0.5 , 2/3),
+                                                                   initial = -3),
+                                                        prec = list (prior = "pc.prec",
+                                                                     param = c(0.2/0.31, 0.01),
+                                                                     initial = 5))
+                                         )
+),
+data = BR,
+offset = log(pop),
+family = "nbinomial",
+verbose = T,
+control.compute = compute_list,
+control.predictor = predictor_list)
+
+data_br <- BR |> 
+  cbind(cases_est = CAR_model$summary.fitted.values |> pull(mean)) |>
+  mutate(ratio = replace_na(cases_est/pop, 0),
+         ratio_denv1 = replace_na(ratio, 0) * DENV1p,
+         ratio_denv2 = replace_na(ratio, 0) * DENV2p,
+         ratio_denv3 = replace_na(ratio, 0) * DENV3p,
+         ratio_denv4 = replace_na(ratio, 0) * DENV4p)
+
+denv1.risk <- data_br |> 
+  ggplot(aes(fill = 1 - ratio_denv1)) + 
+  geom_sf(color = NA) + 
+  geom_sf(data = BR_states,
+          color = "black",
+          fill = "transparent")+
+  colorspace::scale_fill_continuous_sequential(name = "Outbreak \n Risk",
+                                               # rev = F,
+                                               palette = "Purple-Yellow")+
+  ggthemes::theme_map()+
+  labs(title = "DENV1")
+denv1.risk
+
+denv2.risk <- data_br |> 
+  ggplot(aes(fill = 1 - ratio_denv2)) + 
+  geom_sf(color = NA) + 
+  geom_sf(data = BR_states,
+          color = "black",
+          fill = "transparent")+
+  colorspace::scale_fill_continuous_sequential(name = "Outbreak \n Risk",
+                                               # rev = F,
+                                               palette = "Purple-Yellow")+
+  ggthemes::theme_map()+
+  labs(title = "DENV2")
+denv2.risk
+
+denv3.risk <- data_br |> 
+  ggplot(aes(fill = 1 - ratio_denv3)) + 
+  geom_sf(color = NA) + 
+  geom_sf(data = BR_states,
+          color = "black",
+          fill = "transparent")+
+  colorspace::scale_fill_continuous_sequential(name = "Outbreak \n Risk",
+                                               # rev = F,
+                                               palette = "Purple-Yellow")+
+  ggthemes::theme_map()+
+  labs(title = "DENV3")
+denv3.risk
+
+denv4.risk <- data_br |> 
+  ggplot(aes(fill = 1 - ratio_denv4)) + 
+  geom_sf(color = NA) + 
+  geom_sf(data = BR_states,
+          color = "black",
+          fill = "transparent")+
+  colorspace::scale_fill_continuous_sequential(name = "Outbreak \n Risk",
+                                               # rev = F,
+                                               palette = "Purple-Yellow")+
+  ggthemes::theme_map()+
+  labs(title = "DENV4")
+denv4.risk
 ```
+
+
+<!-- ```{r} -->
+<!-- aux3 <- denvbr |>  -->
+<!--   mutate(SOROTIPO = ifelse(is.na(SOROTIPO),SOROTIPO, paste0("DENV",SOROTIPO))) |>  -->
+<!--   group_by(codmun6 = as.character(ID_MN_RESI)) |>  -->
+<!--   mutate(casos = n()) |>  -->
+<!--   group_by(codmun6, SOROTIPO, DT_SIN_PRI) |>  -->
+<!--   summarise( -->
+<!--     n = n(), -->
+<!--     casos = casos[1] -->
+<!--   ) |>  -->
+<!--   filter(!is.na(SOROTIPO)) |>  -->
+<!--   pivot_wider(values_from = n, names_from = SOROTIPO) -->
+
+<!-- colors <- c("#1965B0", "#4EB265", "#F7F056", "#DC050C") -->
+
+<!-- aux3 |>  -->
+<!--   filter(!is.na(DT_SIN_PRI),  -->
+<!--          year(DT_SIN_PRI) > 2015) |> -->
+<!--   rename(date = DT_SIN_PRI) |>  -->
+<!--   group_by(date) |>  -->
+<!--   summarise(across(starts_with("DENV"),  -->
+<!--                    ~sum(.x, na.rm = T))) |>  -->
+<!--   pivot_longer(cols = starts_with("DENV"),  -->
+<!--                names_to = "serotype", -->
+<!--                values_to = "count") |>  -->
+<!--   ggplot(aes(x = date,  -->
+<!--              y = count, -->
+<!--              fill = serotype))+ -->
+<!--   geom_col()+ -->
+<!--   theme_minimal()+ -->
+<!--   scale_fill_manual(values = colors) -->
+<!-- ``` -->
 
