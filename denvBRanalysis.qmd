@@ -318,6 +318,7 @@ ggsave(filename = "Fig/denv_serotype_risk_outbreak.png",
        dpi = 200)
 
 ```
+
 #### A model to smooth out the cases
 
 In an attempt to have more smooth estimates of cases we employed the following model, $Y_i$ is the number of cases at the municipality $i$:
@@ -374,7 +375,7 @@ CAR_model <- inla(formula = as.formula(casos ~ 1+
 ),
 data = BR,
 offset = log(pop),
-family = "nbinomial",
+family = "poisson",
 verbose = T,
 control.compute = compute_list,
 control.predictor = predictor_list)
@@ -387,16 +388,48 @@ data_br <- BR |>
          ratio_denv3 = replace_na(ratio, 0) * DENV3p,
          ratio_denv4 = replace_na(ratio, 0) * DENV4p)
 
+library(ggplot2)
+library(patchwork)
+library(sf)
+library(colorspace)
+
+# Ensure consistent scales for all plots
+common_scale <- scale_fill_continuous_sequential(
+  name = "Outbreak Risk",
+  palette = "Purple-Yellow",
+  limits = c(0, 1),  # Set the same limits for all plots
+  breaks = seq(0.10, 0.75, by = 0.10),  # Set the same breaks for all plots
+  labels = c("<10%", "", "30%", "", "50%", "", ">70%")
+)
+
+# Create the plots with the common scale
+denv_br <- data_br |> 
+  ggplot(aes(fill = 1 - ratio)) + 
+  geom_sf(color = NA) + 
+  geom_sf(data = BR_states,
+          color = "black",
+          fill = "transparent") +
+  common_scale +
+  theme_bw() +
+  theme(legend.position = "bottom",
+        legend.title.position = "top",
+        legend.title = element_text(hjust = 0.5)) +
+  guides(fill = guide_bins()) +
+  labs(title = "DENV")
+denv_br
+
 denv1.risk <- data_br |> 
   ggplot(aes(fill = 1 - ratio_denv1)) + 
   geom_sf(color = NA) + 
   geom_sf(data = BR_states,
           color = "black",
-          fill = "transparent")+
-  colorspace::scale_fill_continuous_sequential(name = "Outbreak \n Risk",
-                                               # rev = F,
-                                               palette = "Purple-Yellow")+
-  ggthemes::theme_map()+
+          fill = "transparent") +
+  common_scale +
+  theme_bw() +
+  theme(legend.position = "bottom",
+        legend.title.position = "top",
+        legend.title = element_text(hjust = 0.5)) +
+  guides(fill = guide_bins()) +
   labs(title = "DENV1")
 denv1.risk
 
@@ -405,11 +438,13 @@ denv2.risk <- data_br |>
   geom_sf(color = NA) + 
   geom_sf(data = BR_states,
           color = "black",
-          fill = "transparent")+
-  colorspace::scale_fill_continuous_sequential(name = "Outbreak \n Risk",
-                                               # rev = F,
-                                               palette = "Purple-Yellow")+
-  ggthemes::theme_map()+
+          fill = "transparent") +
+  common_scale +
+  theme_bw() +
+  theme(legend.position = "bottom",
+        legend.title.position = "top",
+        legend.title = element_text(hjust = 0.5)) +
+  guides(fill = guide_bins()) +
   labs(title = "DENV2")
 denv2.risk
 
@@ -418,11 +453,13 @@ denv3.risk <- data_br |>
   geom_sf(color = NA) + 
   geom_sf(data = BR_states,
           color = "black",
-          fill = "transparent")+
-  colorspace::scale_fill_continuous_sequential(name = "Outbreak \n Risk",
-                                               # rev = F,
-                                               palette = "Purple-Yellow")+
-  ggthemes::theme_map()+
+          fill = "transparent") +
+  common_scale +
+  theme_bw() +
+  theme(legend.position = "bottom",
+        legend.title.position = "top",
+        legend.title = element_text(hjust = 0.5)) +
+  guides(fill = guide_bins()) +
   labs(title = "DENV3")
 denv3.risk
 
@@ -431,13 +468,52 @@ denv4.risk <- data_br |>
   geom_sf(color = NA) + 
   geom_sf(data = BR_states,
           color = "black",
-          fill = "transparent")+
-  colorspace::scale_fill_continuous_sequential(name = "Outbreak \n Risk",
-                                               # rev = F,
-                                               palette = "Purple-Yellow")+
-  ggthemes::theme_map()+
+          fill = "transparent") +
+  common_scale +
+  theme_bw() +
+  theme(legend.position = "bottom",
+        legend.title.position = "top",
+        legend.title = element_text(hjust = 0.5)) +
+  guides(fill = guide_bins()) +
   labs(title = "DENV4")
 denv4.risk
+
+# Combine the plots using patchwork
+patchwork_risk <- (denv_br | 
+                     ((denv1.risk | denv2.risk) / 
+                        (denv3.risk | denv4.risk))) + 
+  plot_layout(guides = "collect") & 
+  theme(legend.position = "bottom")
+patchwork_risk
+
+# Save the final plot
+ggsave(filename = "Fig/combined_risk_outbreak.png",
+       plot = patchwork_risk,
+       width = 16,
+       height = 12,
+       dpi = 200)
+
+ggsave(filename = "Fig/combined_risk_outbreak.pdf",
+       plot = patchwork_risk,
+       width = 16,
+       height = 12,
+       dpi = 200)
+
+# # Extract the legend from one of the plots
+# legend <- cowplot::get_legend(denv_br)
+# 
+# # Combine the plots and add the common legend
+# combined_plot <- patchwork_risk
+# combined_plot
+# 
+# # Add the legend to the combined plot
+# final_plot <- combined_plot + 
+#   inset_element(legend, 
+#                 left = 0.4, 
+#                 bottom = 0, 
+#                 right = 0.6, 
+#                 top = 0.1)
+# final_plot
 ```
 
 
