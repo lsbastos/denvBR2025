@@ -1,6 +1,6 @@
 ---
 title: "Dengue susceptibility analysis"
-author: "Leo Bastos"
+author: "Leo Bastos & Rafael Lopes"
 format: 
   html: 
     toc: true
@@ -324,11 +324,11 @@ ggsave(filename = "Fig/denv_serotype_risk_outbreak.png",
 In an attempt to have more smooth estimates of cases we employed the following model, $Y_i$ is the number of cases at the municipality $i$:
 
 $$
-Y_i \sim Poisson(\lambda_i) \\
+Y_i \sim Poisson(\lambda_i), \\
 log(\lambda_i) = \mu + \theta(\lambda_i) + \epsilon_i \\
 $$
 
-Where we a modeling the number of cases to have a smoothed version of them, to that end the $\theta(\lambda_i)$ term is a CAR model with the following structure:
+Where we are modeling the number of cases to have a spatial smoothed version of them, to that end the $\theta(\lambda_i)$ term is a spatial CAR model with the following structure:
 
 $$
 \theta(\lambda_i) = \frac{1}{\sqrt\tau_b}(\sqrt{1-\phi} v(\lambda_i) + \sqrt\phi u(\lambda_i))
